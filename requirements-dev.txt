@@ -1,0 +1,4 @@
+-r requirements.txt
+moto[dynamodb,s3,firehose,sqs,iot,cloudwatch]>=5.0
+pytest>=8
+ruff>=0.5

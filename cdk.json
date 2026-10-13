@@ -1,0 +1,18 @@
+{
+  "app": "python3 app.py",
+  "context": {
+    "project": "incubator",
+    "device_ids": ["hive-1C5A00", "hive-SIM001"],
+    "ttl_days": 30,
+    "heartbeat_period_minutes": 5,
+    "heartbeat_missing_periods": 2,
+    "alarm_email": "",
+    "certificate_arns": {},
+    "retain_data": false,
+    "@aws-cdk/core:newStyleStackSynthesis": true,
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
+    "@aws-cdk/aws-cloudfront:defaultSecurityPolicyTLSv1.2_2021": true
+  }
+}

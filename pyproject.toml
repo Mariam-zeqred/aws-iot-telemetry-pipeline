@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "lambdas", "simulator", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "lambdas", "simulator", "scripts", "."]
+filterwarnings = ["ignore::DeprecationWarning"]

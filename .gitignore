@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# CDK
+cdk.out/
+cdk.context.json
+.cdk.staging/
+node_modules/
+
+# Secrets: device certificates and private keys live only on the machine that provisioned them
+simulator/certs/*
+!simulator/certs/README.md
+!simulator/certs/.gitkeep
+*.pem
+*.key
+*.crt
+.env
+.env.*
+!.env.example
+
+# Local outputs and anything over 10 MB
+*.log
+*.parquet
+athena-results/
