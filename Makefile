@@ -1,0 +1,41 @@
+.PHONY: install install-dev lint test synth check cost simulate clean
+
+PY ?= python3
+CDK ?= cdk
+export CDK_DISABLE_VERSION_CHECK = 1
+
+install:
+	$(PY) -m pip install -r requirements.txt
+
+install-dev:
+	$(PY) -m pip install -r requirements-dev.txt
+
+lint:
+	$(PY) -m ruff check .
+	$(PY) -m ruff format --check .
+
+test:
+	$(PY) -m pytest -q
+
+# Produces cdk.out/ without touching any AWS account. This is as far as CI ever goes.
+synth:
+	$(CDK) synth --no-notices --quiet
+
+# `cdk diff`/`deploy` need credentials and a bootstrapped account; run them yourself, never from CI.
+plan:
+	$(CDK) diff --no-notices
+
+check: lint test synth
+	$(PY) simulator/simulate.py --dry-run --count 3 > /dev/null
+
+cost:
+	$(PY) scripts/cost.py
+	@echo
+	$(PY) scripts/cost.py --interval 60
+
+simulate:
+	$(PY) simulator/simulate.py --dry-run --count 10 --no-sleep
+
+clean:
+	rm -rf cdk.out .pytest_cache .ruff_cache
+	find . -name __pycache__ -type d -exec rm -rf {} +
