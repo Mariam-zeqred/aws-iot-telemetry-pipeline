@@ -1,4 +1,4 @@
-.PHONY: install install-dev lint test synth check cost simulate clean
+.PHONY: install install-dev lint test synth plan check cost simulate screenshot clean
 
 PY ?= python3
 CDK ?= cdk
@@ -35,6 +35,10 @@ cost:
 
 simulate:
 	$(PY) simulator/simulate.py --dry-run --count 10 --no-sleep
+
+# Local dashboard against a fake API (no AWS): python scripts/mock_api.py, then open the URL.
+screenshot:
+	$(PY) scripts/screenshot_dashboard.py
 
 clean:
 	rm -rf cdk.out .pytest_cache .ruff_cache

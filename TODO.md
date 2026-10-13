@@ -16,11 +16,9 @@ passing. What follows is what the next session (or Mariam) should do.
 2. **Batch Firehose writes.** Firehose bills 5 KB per record; a 350-byte message costs 14×.
    Either `put_record_batch` from a buffered rule (IoT rule → Firehose action directly, with
    a Lambda only for validation) or accept it and document. Decide and update the cost table.
-3. **Screenshot of the dashboard** against a mocked API (serve `dashboard/` locally with a
-   small Python server returning simulator records; Playwright is in the sandbox) and embed
-   it in README under "What it looks like".
-4. `cdk-nag` (`AwsSolutionsChecks`) in `tests/test_stack.py`, with justified suppressions.
-5. Optional: the `commands` return path (see WALKTHROUGH "One thing you could extend").
+3. `cdk-nag` (`AwsSolutionsChecks`) in `tests/test_stack.py`, with justified suppressions.
+4. Optional: the `commands` return path (see WALKTHROUGH "One thing you could extend").
+5. A test for `scripts/mock_api.py` (it is exercised only by the screenshot script today).
 
 ## Needs Mariam (a laptop with an AWS account)
 - `cdk bootstrap` + `cdk deploy`, provision one certificate, run the simulator for an hour,

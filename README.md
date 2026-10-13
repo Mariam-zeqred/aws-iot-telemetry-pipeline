@@ -44,6 +44,7 @@ pip install -r requirements-dev.txt
 npm install -g aws-cdk@2            # the CDK CLI (Node 18+)
 make check                          # ruff + 47 pytest + cdk synth + simulator dry run
 make cost                           # the cost tables below
+make screenshot                     # docs/dashboard.png via the mock API (needs playwright)
 python simulator/simulate.py --dry-run --count 5           # model-generated records
 python simulator/simulate.py --dry-run --replay simulator/sample_history.json --count 5
 ```
@@ -62,6 +63,16 @@ python simulator/simulate.py --endpoint <iot-ats-endpoint> --device-id hive-SIM0
 
 Then open the `DashboardUrl` output. `make plan` runs `cdk diff`. `cdk destroy` removes
 everything, including data, unless `retain_data` is true.
+
+## What it looks like
+
+![Dashboard: fleet table and one device's last hour](docs/dashboard.png)
+
+Rendered by `scripts/screenshot_dashboard.py` from `dashboard/index.html` served by
+`scripts/mock_api.py`, a local stand-in for the HTTP API fed by the simulator model (so the
+numbers are simulated, not from a deployment). The red dot is a device whose last message is
+older than two heartbeat periods; the yellow band is heater-on; the dip is a door opening.
+`python scripts/mock_api.py` then <http://127.0.0.1:8765/> gives you the same page locally.
 
 ## What goes where
 
