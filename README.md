@@ -9,7 +9,7 @@ sends, so it is a drop-in cloud side for the existing device.
 
 **Nothing here has been deployed.** The build sandbox has no AWS account and the project
 rules forbid deploying from it. What is verified: `cdk synth` produces a valid template,
-47 tests pass (Lambda handlers against `moto`, the simulator, stack assertions), and the
+49 tests pass (Lambda handlers against `moto`, the simulator, stack assertions), and the
 simulator runs in dry-run mode. The deploy steps below are written for a laptop with
 credentials.
 
@@ -42,7 +42,7 @@ heartbeat period, alarm e-mail, certificate ARNs, retain-data switch).
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 npm install -g aws-cdk@2            # the CDK CLI (Node 18+)
-make check                          # ruff + 47 pytest + cdk synth + simulator dry run
+make check                          # ruff + 49 pytest + cdk synth + simulator dry run
 make cost                           # the cost tables below
 make screenshot                     # docs/dashboard.png via the mock API (needs playwright)
 python simulator/simulate.py --dry-run --count 5           # model-generated records
