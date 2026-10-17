@@ -9,7 +9,8 @@ sends, so it is a drop-in cloud side for the existing device.
 
 **Nothing here has been deployed.** The build sandbox has no AWS account and the project
 rules forbid deploying from it. What is verified: `cdk synth` produces a valid template,
-49 tests pass (Lambda handlers against `moto`, the simulator, stack assertions), and the
+66 tests pass (Lambda handlers against `moto`, the simulator, stack assertions, the cdk-nag
+`AwsSolutions` pack with every suppression justified in `src/pipeline/nag.py`), and the
 simulator runs in dry-run mode. The deploy steps below are written for a laptop with
 credentials.
 
@@ -44,7 +45,8 @@ retain-data switch, `per_device_metrics`).
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 npm install -g aws-cdk@2            # the CDK CLI (Node 18+)
-make check                          # ruff + 49 pytest + cdk synth + simulator dry run
+make check                          # ruff + 66 pytest + cdk synth + simulator dry run
+make nag                            # cdk synth with cdk-nag findings printed (none expected)
 make cost                           # the cost tables below
 make screenshot                     # docs/dashboard.png via the mock API (needs playwright)
 python simulator/simulate.py --dry-run --count 5           # model-generated records
