@@ -65,7 +65,7 @@ class Monitoring(Construct):
         self.heartbeat = lambda_.Function(
             self,
             "Heartbeat",
-            runtime=lambda_.Runtime.PYTHON_3_13,
+            runtime=lambda_.Runtime.PYTHON_3_14,
             architecture=lambda_.Architecture.ARM_64,
             code=lambda_.Code.from_asset(str(LAMBDAS_DIR), exclude=LAMBDA_EXCLUDE),
             handler="heartbeat.handler.handler",

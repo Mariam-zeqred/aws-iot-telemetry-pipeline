@@ -147,7 +147,19 @@ class ColdStorage(Construct):
         role = iam.Role(
             self, "FirehoseRole", assumed_by=iam.ServicePrincipal("firehose.amazonaws.com")
         )
-        self.bucket.grant_read_write(role)  # read is needed for multipart uploads' ListBucket
+        # Exactly the actions the Firehose S3 destination documentation lists; no DeleteObject.
+        role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"],
+                resources=[self.bucket.bucket_arn],
+            )
+        )
+        role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:AbortMultipartUpload", "s3:GetObject", "s3:PutObject"],
+                resources=[self.bucket.arn_for_objects("*")],
+            )
+        )
         role.add_to_policy(
             iam.PolicyStatement(
                 actions=["glue:GetTable", "glue:GetTableVersion", "glue:GetTableVersions"],
@@ -173,6 +185,11 @@ class ColdStorage(Construct):
             self,
             "Stream",
             delivery_stream_type="DirectPut",
+            delivery_stream_encryption_configuration_input=(
+                firehose.CfnDeliveryStream.DeliveryStreamEncryptionConfigurationInputProperty(
+                    key_type="AWS_OWNED_CMK"
+                )
+            ),
             extended_s3_destination_configuration=(
                 firehose.CfnDeliveryStream.ExtendedS3DestinationConfigurationProperty(
                     bucket_arn=self.bucket.bucket_arn,

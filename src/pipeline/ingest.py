@@ -38,7 +38,7 @@ class Ingest(Construct):
         self.function = lambda_.Function(
             self,
             "Function",
-            runtime=lambda_.Runtime.PYTHON_3_12,
+            runtime=lambda_.Runtime.PYTHON_3_14,
             architecture=lambda_.Architecture.ARM_64,
             code=lambda_.Code.from_asset(str(LAMBDAS_DIR), exclude=LAMBDA_EXCLUDE),
             handler="ingest.handler.handler",

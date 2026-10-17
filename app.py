@@ -11,9 +11,13 @@ import aws_cdk as cdk  # noqa: E402
 from pipeline.stack import TelemetryPipelineStack  # noqa: E402
 
 app = cdk.App()
-TelemetryPipelineStack(
+stack = TelemetryPipelineStack(
     app,
     "IncubatorTelemetryPipeline",
     description="IoT Core -> Lambda -> DynamoDB + Firehose/S3/Athena, status API and dashboard",
 )
+if app.node.try_get_context("nag"):  # cdk synth -c nag=true: print cdk-nag findings
+    from pipeline.nag import apply  # noqa: E402 (dev dependency, imported only when asked)
+
+    apply(stack, verbose=True)
 app.synth()

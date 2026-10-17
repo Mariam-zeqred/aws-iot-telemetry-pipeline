@@ -1,4 +1,4 @@
-.PHONY: install install-dev lint test synth plan check cost simulate screenshot clean
+.PHONY: install install-dev lint test synth nag plan check cost simulate screenshot clean
 
 PY ?= python3
 CDK ?= cdk
@@ -20,6 +20,10 @@ test:
 # Produces cdk.out/ without touching any AWS account. This is as far as CI ever goes.
 synth:
 	$(CDK) synth --no-notices --quiet
+
+# cdk-nag AwsSolutions findings as synth annotations (the test suite asserts there are none).
+nag:
+	$(CDK) synth --no-notices --quiet -c nag=true
 
 # `cdk diff`/`deploy` need credentials and a bootstrapped account; run them yourself, never from CI.
 plan:

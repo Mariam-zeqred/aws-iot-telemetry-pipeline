@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from aws_cdk import Duration, RemovalPolicy
 from aws_cdk import aws_apigatewayv2 as apigw
 from aws_cdk import aws_apigatewayv2_integrations as integrations
@@ -26,7 +28,7 @@ class StatusApi(Construct):
         self.function = lambda_.Function(
             self,
             "Function",
-            runtime=lambda_.Runtime.PYTHON_3_12,
+            runtime=lambda_.Runtime.PYTHON_3_14,
             architecture=lambda_.Architecture.ARM_64,
             code=lambda_.Code.from_asset(str(LAMBDAS_DIR), exclude=LAMBDA_EXCLUDE),
             handler="status_api.handler.handler",
@@ -64,6 +66,26 @@ class StatusApi(Construct):
         assert isinstance(cfn_stage, apigw.CfnStage)
         cfn_stage.default_route_settings = apigw.CfnStage.RouteSettingsProperty(
             throttling_burst_limit=20, throttling_rate_limit=10
+        )
+        # Access log: one JSON line per request (who called what, status, latency).
+        access_logs = logs.LogGroup(
+            self, "AccessLogs", retention=logs.RetentionDays.ONE_MONTH, removal_policy=removal
+        )
+        cfn_stage.access_log_settings = apigw.CfnStage.AccessLogSettingsProperty(
+            destination_arn=access_logs.log_group_arn,
+            format=json.dumps(
+                {
+                    "requestId": "$context.requestId",
+                    "ip": "$context.identity.sourceIp",
+                    "requestTime": "$context.requestTime",
+                    "method": "$context.httpMethod",
+                    "path": "$context.path",
+                    "status": "$context.status",
+                    "responseLength": "$context.responseLength",
+                    "latencyMs": "$context.responseLatency",
+                    "error": "$context.error.message",
+                }
+            ),
         )
 
     @property
