@@ -3,8 +3,8 @@
 This repo shows a complete device-to-cloud telemetry pipeline for the queen-bee incubator as
 infrastructure as code (AWS CDK, Python): MQTT with per-device X.509 certificates into IoT
 Core, a rule into a validating Lambda, a hot store in DynamoDB with a 30-day TTL, a cold
-store of Parquet files in S3 queried with Athena, heartbeat alarms, and a small status API
-with a static dashboard. It uses the exact record format the incubator firmware already
+store of Parquet files in S3 queried with Athena, a scheduled stale-device check (plus
+per-device heartbeat alarms for small fleets), and a small status API with a static dashboard. It uses the exact record format the incubator firmware already
 sends, so it is a drop-in cloud side for the existing device.
 
 **Nothing here has been deployed.** The build sandbox has no AWS account and the project
@@ -25,16 +25,18 @@ flowchart LR
   L -- put_record --> F[Firehose<br/>JSON → Parquet, 5 min / 64 MB]
   F --> S3[(S3 cold store<br/>year/month/day)]
   S3 --- G[Glue table +<br/>Athena workgroup]
-  L -. EMF log line .-> CW[CloudWatch metrics<br/>Accepted · Rejected per device]
-  CW --> AL[Alarms<br/>missing heartbeat · rejects · errors] --> SNS[SNS → e-mail]
+  L -. EMF log line .-> CW[CloudWatch metrics<br/>Accepted · Rejected · StaleDevices]
+  S -- "scan every 5 min" --> HB[Lambda heartbeat<br/>count stale devices] -. EMF .-> CW
+  CW --> AL[Alarms<br/>stale devices · rejects · errors] --> SNS[SNS → e-mail]
   S & H --> API[HTTP API + Lambda<br/>/devices · /latest · /history]
   API --> CF[CloudFront + S3<br/>dashboard/index.html]
 ```
 
 One stack, six constructs (`src/pipeline/`): `devices` (things, policy, certificate
 placeholders), `storage` (hot + cold), `ingest` (rule, Lambda, reject queue), `api`,
-`dashboard`, `monitoring`. Tunables live in `cdk.json` → `context` (device ids, TTL,
-heartbeat period, alarm e-mail, certificate ARNs, retain-data switch).
+`dashboard`, `monitoring` (the scheduled heartbeat Lambda and the alarms). Tunables live in
+`cdk.json` → `context` (device ids, TTL, heartbeat period, alarm e-mail, certificate ARNs,
+retain-data switch, `per_device_metrics`).
 
 ## Run it
 
@@ -91,33 +93,46 @@ Unit prices are US East (N. Virginia) list prices typed from the pricing pages l
 the script. **They could not be re-checked from the build sandbox** (aws.amazon.com was
 unreachable), so re-read the pages before quoting these numbers. Free tiers are ignored.
 
-One message every 15 s per device (the incubator's real rate):
+One message every 15 s per device (the incubator's real rate). The last two columns are the
+same fleet with `per_device_metrics` on (one metric set and one alarm per device, the
+default, right for ten hives) and off (fleet totals plus the scheduled stale-device scan):
 
-| Service | 10 devices | 1 000 devices |
-|---|---:|---:|
-| IoT Core connectivity | $0.03 | $3.46 |
-| IoT Core messaging | $1.73 | $172.80 |
-| IoT rules + actions | $0.52 | $51.84 |
-| Lambda ingest | $1.05 | $105.34 |
-| DynamoDB writes (history + status) | $2.16 | $216.00 |
-| DynamoDB storage (30-day TTL) | $0.19 | $19.44 |
-| Firehose ingest + Parquet conversion | $0.42 | $41.58 |
-| S3 cold storage (first month) | $0.00 | $0.24 |
-| Athena | $0.05 | $0.05 |
-| CloudWatch metrics (2 per device + 2 fleet) | $6.60 | $600.60 |
-| CloudWatch alarms (1 per device + 3) | $1.30 | $100.30 |
-| CloudWatch logs (EMF lines) | $0.35 | $34.56 |
-| API Gateway + status Lambda (3 dashboard viewers) | $1.24 | $1.24 |
-| CloudFront + SQS + Glue catalog | $0.00 | $0.00 |
-| **Total per month** | **$15.65** | **$1,347.45** |
+| Service | 10 devices, per-device alarms | 1 000 devices, per-device alarms | 1 000 devices, fleet alarm only |
+|---|---:|---:|---:|
+| IoT Core connectivity | $0.03 | $3.46 | $3.46 |
+| IoT Core messaging | $1.73 | $172.80 | $172.80 |
+| IoT rules + actions | $0.52 | $51.84 | $51.84 |
+| Lambda ingest | $1.05 | $105.34 | $105.34 |
+| DynamoDB writes (history + status) | $2.16 | $216.00 | $216.00 |
+| DynamoDB storage (30-day TTL) | $0.19 | $19.44 | $19.44 |
+| Firehose ingest + Parquet conversion | $0.42 | $41.58 | $41.58 |
+| S3 cold storage (first month) | $0.00 | $0.24 | $0.24 |
+| Athena | $0.05 | $0.05 | $0.05 |
+| Heartbeat scan (Lambda + status-table reads) | $0.02 | $0.08 | $0.08 |
+| CloudWatch metrics | $10.80 | $901.80 | $1.80 |
+| CloudWatch alarms | $1.40 | $100.40 | $0.40 |
+| CloudWatch logs (EMF lines) | $0.35 | $34.56 | $34.56 |
+| API Gateway + status Lambda (3 dashboard viewers) | $1.24 | $1.24 | $1.24 |
+| CloudFront + SQS + Glue catalog | $0.00 | $0.00 | $0.00 |
+| **Total per month** | **$19.97** | **$1,648.83** | **$648.83** |
 
-At one message a minute the totals drop to about $10.83 and $866. Two things the table
-teaches: (1) at 1 000 devices more than half the bill is **per-device CloudWatch metrics
-and alarms**, so the heartbeat design in this repo (one alarm per thing, fine for a fleet
-of ten) must change to a scheduled Lambda that scans the status table for stale `received_at`
-values and raises one fleet metric (see TODO.md); (2) the 5 KB minimum per Firehose record
-makes a 350-byte message cost 14× its size, so batching records before `put_record` would
-cut that line by ~90 %.
+At one message a minute the totals are $15.15 / $1,167 / $167. What the table teaches:
+
+1. **Per-device CloudWatch metrics and alarms are the bill at 1 000 devices**: three metric
+   names per device (`Rejected` only for devices that ever fail validation, so $600–900) plus
+   one alarm each. The `per_device_metrics = false` setting removes them; the heartbeat Lambda
+   (`lambdas/heartbeat/`) then does the same job for eight cents a month by scanning the status
+   table every five minutes and publishing one `StaleDevices` count, with the silent ids in
+   its log line. The one thing it cannot see is a device that has *never* reported, because
+   that device has no status item; the per-device alarm does catch that. (Earlier versions of
+   this table counted two metrics per device and gave $1,347 for the per-device design.)
+2. **Why the Firehose line is left as is.** Firehose bills each `put_record` as at least 5 KB,
+   so a 450-byte record costs 11× its size: $41.58 instead of $3.65 at 1 000 devices. Packing
+   records to 5 KB would need state between invocations (the rule calls the Lambda once per
+   message), i.e. a Kinesis Data Stream or SQS stage in front of Firehose, each with its own
+   monthly minimum and a price not verified in this repo. At 3–6 % of the total the saving does
+   not pay for the extra stage; the decision is recorded here and in TODO.md and would be
+   revisited above ~5 000 devices or at a shorter message interval.
 
 ## Security notes
 
@@ -128,9 +143,9 @@ cut that line by ~90 %.
   certificate cannot impersonate another hive or read the fleet.
 - The device id in every stored record comes from the topic, not from the JSON, so a
   device cannot write under another id.
-- Lambdas get table-level grants only (write for ingest, read for the API), `PutRecord` on
-  the one stream, `SendMessage` on the one queue. Metrics go out as EMF log lines, so no
-  CloudWatch permission at all.
+- Lambdas get table-level grants only (write for ingest, read for the API, read on the status
+  table for the heartbeat scan), `PutRecord` on the one stream, `SendMessage` on the one
+  queue. Metrics go out as EMF log lines, so no CloudWatch permission at all.
 - Both buckets block public access and require TLS; the dashboard bucket is read only
   through CloudFront origin access control. The API is GET-only, throttled to 10 req/s,
   and unauthenticated: it exposes fleet temperatures to anyone with the URL. Add a
@@ -162,15 +177,18 @@ and the Flutter app listens to it. The same ideas map onto this pipeline:
   traffic, not to study control (that is `incubator-thermal-control-sim`).
 - `simulator/sample_history.json` is one real hour (240 readings, 3 Oct 2026) from the
   incubator export, with timestamps shifted to "now" on replay.
-- Heartbeat alarms are per device and only for the ids listed in `cdk.json`.
+- Per-device heartbeat alarms exist only for the ids in `cdk.json`; the `StaleDevices` alarm
+  covers every device that has reported at least once, so a thing that never connects is
+  invisible to it. If the heartbeat Lambda stops running, its metric goes missing and the same
+  alarm fires (missing data is treated as breaching).
 - Firehose partitions by arrival time, not device time; a device backfilling a week of
   buffered data lands in today's partition (the `day` column still holds the device date).
 - Cost figures are hand-typed list prices, unverified in the sandbox.
 
 ## Next steps
 
-See TODO.md: a scalable heartbeat check, record batching into Firehose, an authoriser on
-the API, a `commands` path back to the device, and the first real deploy.
+See TODO.md: an authoriser on the API, a `commands` path back to the device, and the first
+real deploy.
 
 ## Licence
 

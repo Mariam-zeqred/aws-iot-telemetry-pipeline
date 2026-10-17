@@ -9,6 +9,10 @@ pessimistic.
 
     python scripts/cost.py            # markdown table
     python scripts/cost.py --json     # machine-readable
+
+Two monitoring designs are costed (see src/pipeline/monitoring.py): `per_device_metrics`
+on (one Accepted/Rejected/Latency metric set and one heartbeat alarm per device) and off
+(fleet totals plus the scheduled StaleDevices scan only). The scan itself runs in both.
 """
 
 from __future__ import annotations
@@ -114,6 +118,12 @@ LAMBDA_GB_S_PER_INVOCATION = 0.256 * 0.12  # 256 MB x ~120 ms
 EMF_LOG_BYTES = 400
 DASHBOARD_REQUESTS_PER_MONTH = 3 * 3600 * 24 * 30 / 15 * 2  # 3 viewers polling 2 calls / 15 s
 ATHENA_TB_SCANNED_PER_MONTH = 0.01  # a few ad-hoc queries over Parquet
+HEARTBEAT_PERIOD_MIN = 5  # cdk.json heartbeat_period_minutes
+HEARTBEAT_GB_S_PER_RUN = 0.256 * 0.5  # 256 MB x ~0.5 s for a scan of a few thousand items
+HEARTBEAT_LOG_BYTES = 600
+PER_DEVICE_METRIC_NAMES = 3  # Accepted, LatencySeconds, Rejected (the last only if it ever fires)
+FLEET_METRIC_NAMES = 3 + 3  # the same three fleet-wide + StaleDevices, OnlineDevices, KnownDevices
+FIXED_ALARMS = 4  # stale devices, fleet silent, rejects, ingest errors
 
 
 @dataclass
@@ -123,10 +133,21 @@ class Line:
     usd: float
 
 
-def estimate(devices: int, interval_s: int, ttl_days: int = 30) -> list[Line]:
+def estimate(
+    devices: int, interval_s: int, ttl_days: int = 30, per_device_metrics: bool = True
+) -> list[Line]:
     p = {k: v[0] for k, v in PRICES.items()}
     msgs = devices * (30 * 86400 / interval_s)
     minutes = devices * 30 * 24 * 60
+    scans = 30 * 24 * 60 / HEARTBEAT_PERIOD_MIN
+    # one eventually-consistent scan reads every status item: 0.5 RRU per 4 KB
+    scan_rru = -(-devices * ENRICHED_BYTES // 4096) * 0.5
+    metric_names = FLEET_METRIC_NAMES + (
+        PER_DEVICE_METRIC_NAMES * devices if per_device_metrics else 0
+    )
+    alarms = FIXED_ALARMS + (devices if per_device_metrics else 0)
+    mode = "per device" if per_device_metrics else "fleet only"
+    log_gb = (msgs * EMF_LOG_BYTES + scans * HEARTBEAT_LOG_BYTES) / 1e9
     lines = [
         Line(
             "IoT Core connectivity",
@@ -175,19 +196,26 @@ def estimate(devices: int, interval_s: int, ttl_days: int = 30) -> list[Line]:
             ATHENA_TB_SCANNED_PER_MONTH * p["athena_per_tb_scanned"],
         ),
         Line(
-            "CloudWatch metrics (2 per device + 2 fleet)",
-            f"{2 * devices + 2} metrics",
-            (2 * devices + 2) * p["cloudwatch_metric_month"],
+            "Heartbeat scan (Lambda + status-table reads)",
+            f"{scans:.0f} scans, {scans * scan_rru / 1e6:.2f} M RRU",
+            scans / 1e6 * p["lambda_requests_per_million"]
+            + scans * HEARTBEAT_GB_S_PER_RUN * p["lambda_gb_second"]
+            + scans * scan_rru / 1e6 * p["dynamodb_read_per_million"],
         ),
         Line(
-            "CloudWatch alarms (1 per device + 3)",
-            f"{devices + 3} alarms",
-            (devices + 3) * p["cloudwatch_alarm_month"],
+            "CloudWatch metrics",
+            f"{metric_names} metrics ({mode})",
+            metric_names * p["cloudwatch_metric_month"],
+        ),
+        Line(
+            "CloudWatch alarms",
+            f"{alarms} alarms ({mode})",
+            alarms * p["cloudwatch_alarm_month"],
         ),
         Line(
             "CloudWatch logs (EMF lines)",
-            f"{msgs * EMF_LOG_BYTES / 1e9:.2f} GB",
-            msgs * EMF_LOG_BYTES / 1e9 * p["cloudwatch_logs_per_gb"],
+            f"{log_gb:.2f} GB",
+            log_gb * p["cloudwatch_logs_per_gb"],
         ),
         Line(
             "API Gateway + status Lambda (3 dashboard viewers)",
@@ -201,14 +229,38 @@ def estimate(devices: int, interval_s: int, ttl_days: int = 30) -> list[Line]:
     return lines
 
 
+def firehose_if_batched(devices: int, interval_s: int) -> float:
+    """What the Firehose line would cost if records were packed to the 5 KB billing unit.
+
+    Not implemented in the stack (see README "Why the Firehose line is left as is"); this is
+    the same prices applied to the real bytes instead of the 5 KB-rounded ones.
+    """
+    p = {k: v[0] for k, v in PRICES.items()}
+    msgs = devices * (30 * 86400 / interval_s)
+    return (
+        msgs
+        * ENRICHED_BYTES
+        / 1e9
+        * (p["firehose_ingest_per_gb"] + p["firehose_conversion_per_gb"])
+    )
+
+
 def markdown(interval_s: int) -> str:
-    small, big = estimate(10, interval_s), estimate(1000, interval_s)
-    out = ["| Service | 10 devices | 1 000 devices |", "|---|---:|---:|"]
-    for a, b in zip(small, big, strict=True):
-        out.append(f"| {a.service} | ${a.usd:,.2f} | ${b.usd:,.2f} |")
+    columns = [
+        ("10 devices, per-device alarms", estimate(10, interval_s)),
+        ("1 000 devices, per-device alarms", estimate(1000, interval_s)),
+        ("1 000 devices, fleet alarm only", estimate(1000, interval_s, per_device_metrics=False)),
+    ]
+    out = [
+        "| Service | " + " | ".join(name for name, _ in columns) + " |",
+        "|---|" + "---:|" * len(columns),
+    ]
+    for lines in zip(*(c for _, c in columns), strict=True):
+        out.append(f"| {lines[0].service} | " + " | ".join(f"${x.usd:,.2f}" for x in lines) + " |")
     out.append(
-        f"| **Total per month** | **${sum(line.usd for line in small):,.2f}** "
-        f"| **${sum(line.usd for line in big):,.2f}** |"
+        "| **Total per month** | "
+        + " | ".join(f"**${sum(x.usd for x in c):,.2f}**" for _, c in columns)
+        + " |"
     )
     return "\n".join(out)
 
@@ -228,6 +280,14 @@ def main(argv: list[str] | None = None) -> int:
                     },
                     "10": [vars(line) for line in estimate(10, args.interval)],
                     "1000": [vars(line) for line in estimate(1000, args.interval)],
+                    "1000_fleet_only": [
+                        vars(line)
+                        for line in estimate(1000, args.interval, per_device_metrics=False)
+                    ],
+                    "firehose_if_batched": {
+                        "10": firehose_if_batched(10, args.interval),
+                        "1000": firehose_if_batched(1000, args.interval),
+                    },
                 },
                 indent=2,
             )
@@ -235,6 +295,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"Monthly estimate, one message every {args.interval} s per device, US East prices\n")
         print(markdown(args.interval))
+        print(
+            f"\nFirehose line if records were packed to 5 KB (not implemented): "
+            f"${firehose_if_batched(10, args.interval):,.2f} / "
+            f"${firehose_if_batched(1000, args.interval):,.2f}"
+        )
     return 0
 
 
