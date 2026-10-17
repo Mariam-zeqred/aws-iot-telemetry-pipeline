@@ -28,7 +28,7 @@ class TelemetryPipelineStack(Stack):
         self.ingest = Ingest(self, "Ingest", self.cfg, self.hot, self.cold)
         self.api = StatusApi(self, "Api", self.cfg, self.hot)
         self.dashboard = Dashboard(self, "Dashboard", self.cfg, self.api.url)
-        self.monitoring = Monitoring(self, "Monitoring", self.cfg, self.ingest.function)
+        self.monitoring = Monitoring(self, "Monitoring", self.cfg, self.ingest.function, self.hot)
 
         CfnOutput(self, "ApiUrl", value=self.api.url)
         CfnOutput(self, "DashboardUrl", value=f"https://{self.dashboard.distribution.domain_name}")
@@ -38,4 +38,5 @@ class TelemetryPipelineStack(Stack):
         CfnOutput(self, "AthenaWorkGroup", value=self.cold.workgroup.ref)
         CfnOutput(self, "RejectQueueUrl", value=self.ingest.reject_queue.queue_url)
         CfnOutput(self, "AlarmTopicArn", value=self.monitoring.topic.topic_arn)
+        CfnOutput(self, "HeartbeatFunction", value=self.monitoring.heartbeat.function_name)
         CfnOutput(self, "DevicePolicyName", value=self.devices.policy.ref)

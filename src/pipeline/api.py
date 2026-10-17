@@ -36,7 +36,7 @@ class StatusApi(Construct):
             environment={
                 "HISTORY_TABLE": hot.history.table_name,
                 "STATUS_TABLE": hot.status.table_name,
-                "STALE_AFTER_S": str(cfg.heartbeat_period_minutes * 60 * 2),
+                "STALE_AFTER_S": str(cfg.stale_after_s),
             },
         )
         hot.history.grant_read_data(self.function)

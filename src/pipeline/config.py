@@ -19,6 +19,9 @@ class PipelineConfig:
     alarm_email: str = ""
     certificate_arns: dict[str, str] = field(default_factory=dict)
     retain_data: bool = False
+    # True: one Accepted/Rejected metric and one heartbeat alarm per device (fine for ten hives).
+    # False: fleet totals only; the scheduled heartbeat Lambda is the only staleness check.
+    per_device_metrics: bool = True
     metric_namespace: str = "Incubator/Telemetry"
     topic_prefix: str = "incubator"
 
@@ -49,9 +52,15 @@ class PipelineConfig:
             alarm_email=get("alarm_email", ""),
             certificate_arns=get("certificate_arns", {}),
             retain_data=get("retain_data", False),
+            per_device_metrics=get("per_device_metrics", True),
         )
         cfg.validate()
         return cfg
+
+    @property
+    def stale_after_s(self) -> int:
+        """A device is stale after this many seconds without an accepted message."""
+        return self.heartbeat_period_minutes * 60 * self.heartbeat_missing_periods
 
     def validate(self) -> None:
         if not 1 <= self.ttl_days <= 365:

@@ -52,6 +52,7 @@ class Ingest(Construct):
                 "REJECT_QUEUE_URL": self.reject_queue.queue_url,
                 "TTL_DAYS": str(cfg.ttl_days),
                 "METRIC_NAMESPACE": cfg.metric_namespace,
+                "PER_DEVICE_METRICS": "1" if cfg.per_device_metrics else "0",
             },
         )
         hot.history.grant_write_data(self.function)

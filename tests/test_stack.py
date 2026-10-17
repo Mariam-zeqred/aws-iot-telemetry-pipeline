@@ -33,8 +33,11 @@ def test_resource_counts(template: Template) -> None:
     template.resource_count_is("AWS::Glue::Table", 1)
     template.resource_count_is("AWS::CloudFront::Distribution", 1)
     template.resource_count_is("AWS::ApiGatewayV2::Route", 4)
-    # one heartbeat alarm per device + fleet silent + rejects + lambda errors
-    template.resource_count_is("AWS::CloudWatch::Alarm", 2 + 3)
+    # one heartbeat alarm per device + stale devices + fleet silent + rejects + lambda errors
+    template.resource_count_is("AWS::CloudWatch::Alarm", 2 + 4)
+    # ingest, api, heartbeat + the two CDK custom-resource handlers (bucket deploy, auto-delete)
+    template.resource_count_is("AWS::Lambda::Function", 3 + 2)
+    template.resource_count_is("AWS::Events::Rule", 1)
     # only the device with a certificate ARN gets attachments
     template.resource_count_is("AWS::IoT::ThingPrincipalAttachment", 1)
     template.resource_count_is("AWS::IoT::PolicyPrincipalAttachment", 1)
@@ -146,6 +149,59 @@ def test_heartbeat_alarm_treats_missing_data_as_breaching(template: Template) ->
     )
 
 
+def test_heartbeat_lambda_is_scheduled_and_read_only(template: Template) -> None:
+    template.has_resource_properties(
+        "AWS::Events::Rule",
+        {"ScheduleExpression": "rate(5 minutes)", "State": "ENABLED"},
+    )
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "Handler": "heartbeat.handler.handler",
+            "Environment": {
+                "Variables": {"STALE_AFTER_S": "600", "STATUS_TABLE": Match.any_value()}
+            },
+        },
+    )
+    # the heartbeat role may read the status table and nothing else in DynamoDB
+    for policy in template.find_resources("AWS::IAM::Policy").values():
+        doc = json.dumps(policy["Properties"]["PolicyDocument"])
+        if "dynamodb:Scan" in doc and "ingest" not in doc.lower():
+            assert "dynamodb:PutItem" not in doc
+    template.has_resource_properties(
+        "AWS::CloudWatch::Alarm",
+        {
+            "AlarmName": "incubator-stale-devices",
+            "MetricName": "StaleDevices",
+            "Statistic": "Maximum",
+            "Period": 600,
+            "Threshold": 1,
+            "EvaluationPeriods": 1,
+            "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+            "TreatMissingData": "breaching",
+        },
+    )
+
+
+def test_fleet_only_mode_drops_per_device_alarms_and_dimension() -> None:
+    app = cdk.App()
+    cfg = PipelineConfig(
+        device_ids=tuple(f"hive-{i:03d}" for i in range(50)), per_device_metrics=False
+    )
+    t = Template.from_stack(TelemetryPipelineStack(app, "Fleet", cfg=cfg))
+    t.resource_count_is("AWS::IoT::Thing", 50)
+    t.resource_count_is("AWS::CloudWatch::Alarm", 4)  # stale devices, fleet silent, rejects, errors
+    alarms = json.dumps(t.find_resources("AWS::CloudWatch::Alarm"))
+    assert "DeviceId" not in alarms
+    t.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "Handler": "ingest.handler.handler",
+            "Environment": {"Variables": {"PER_DEVICE_METRICS": "0"}},
+        },
+    )
+
+
 def test_api_is_throttled_and_cors_is_get_only(template: Template) -> None:
     template.has_resource_properties(
         "AWS::ApiGatewayV2::Stage",
@@ -200,3 +256,4 @@ def test_config_from_context_coerces_strings() -> None:
     cfg = PipelineConfig.from_context(app)
     assert cfg.device_ids == ("a", "b") and cfg.ttl_days == 7 and cfg.retain_data is True
     assert cfg.certificate_arns == {"a": "arn:x"}
+    assert cfg.per_device_metrics is True and cfg.stale_after_s == 600

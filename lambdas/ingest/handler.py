@@ -31,6 +31,9 @@ FIREHOSE_STREAM = os.environ.get("FIREHOSE_STREAM", "")
 REJECT_QUEUE_URL = os.environ.get("REJECT_QUEUE_URL", "")
 TTL_DAYS = int(os.environ.get("TTL_DAYS", "30"))
 NAMESPACE = os.environ.get("METRIC_NAMESPACE", "Incubator/Telemetry")
+# "1": Accepted/Rejected also get a DeviceId dimension (one metric per device, used by the
+# per-device heartbeat alarms). "0": fleet totals only; the device id stays in the log line.
+PER_DEVICE_METRICS = os.environ.get("PER_DEVICE_METRICS", "1") == "1"
 
 _dynamo = None
 _firehose = None
@@ -52,8 +55,14 @@ def reset_clients() -> None:
     _dynamo = _firehose = _sqs = None
 
 
+def _dimensions(device_id: str) -> dict[str, str]:
+    return {"DeviceId": device_id} if PER_DEVICE_METRICS else {}
+
+
 def _reject(device_id: str, reason: str, raw: dict[str, Any], sqs: Any) -> dict[str, Any]:
-    metrics.emit(NAMESPACE, {"Rejected": 1}, {"DeviceId": device_id}, reason=reason)
+    metrics.emit(
+        NAMESPACE, {"Rejected": 1}, _dimensions(device_id), DeviceId=device_id, reason=reason
+    )
     if REJECT_QUEUE_URL:
         sqs.send_message(
             QueueUrl=REJECT_QUEUE_URL,
@@ -87,7 +96,8 @@ def handler(event: dict[str, Any], _context: Any = None) -> dict[str, Any]:
     metrics.emit(
         NAMESPACE,
         {"Accepted": 1, "LatencySeconds": full["latency_s"]},
-        {"DeviceId": device_id},
+        _dimensions(device_id),
+        DeviceId=device_id,
         temp=full["temp"],
         heater=int(full["heater"]),
     )

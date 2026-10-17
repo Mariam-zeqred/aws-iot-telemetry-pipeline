@@ -80,3 +80,13 @@ def test_received_at_defaults_to_now_when_rule_omits_it(env: str) -> None:
     ev = _event(ts=int(time.time()))
     ev.pop("received_at_ms")
     assert ingest.handler(ev)["status"] == "accepted"
+
+
+def test_fleet_only_mode_keeps_device_id_out_of_dimensions(
+    env: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    monkeypatch.setattr(ingest, "PER_DEVICE_METRICS", False)
+    assert ingest.handler(_event())["status"] == "accepted"
+    emf = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert emf["_aws"]["CloudWatchMetrics"][0]["Dimensions"] == [[]]
+    assert emf["DeviceId"] == "hive-1C5A00"  # still in the log line for Logs Insights
