@@ -33,3 +33,7 @@ test for `scripts/mock_api.py`.
   device actually rejects (the table assumes three metric names per device).
 - Point the real incubator at IoT Core: the firmware needs the ATS endpoint, the certificate
   and `incubator/<thing-name>/telemetry` as topic; payload unchanged.
+
+## Added by the review of 2026-11-24
+
+- **Decide whether the copied incubator material stays in this public repo.** Its source repository, `incubator-telemetry-analysis`, was made private on 2026-11-21 (the links here now say so), but the fitted incubator thermal-model parameters in `simulator/incubator_model.py` and the readings in `simulator/sample_history.json` remain public here. Keeping, replacing with synthetic data or removing them is Mariam's decision, not a session's: removal would also mean rewriting history, and the README's "real data" statements would have to change with it.
