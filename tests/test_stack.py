@@ -116,7 +116,7 @@ def test_ingest_lambda_wiring(template: Template) -> None:
         "AWS::Lambda::Function",
         {
             "Handler": "ingest.handler.handler",
-            "Runtime": "python3.14",
+            "Runtime": "python3.15",
             "Environment": {
                 "Variables": {
                     "TTL_DAYS": "30",

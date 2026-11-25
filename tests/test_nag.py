@@ -77,4 +77,4 @@ def test_nag_fixes_are_in_the_template(checked: tuple) -> None:
         for fn in t.find_resources("AWS::Lambda::Function").values()
         if fn["Properties"].get("Handler") in ours
     }
-    assert set(runtimes) == ours and set(runtimes.values()) == {"python3.14"}
+    assert set(runtimes) == ours and set(runtimes.values()) == {"python3.15"}

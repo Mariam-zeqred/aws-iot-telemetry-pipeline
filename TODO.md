@@ -17,9 +17,11 @@ test for `scripts/mock_api.py`.
 3. Revisit the Firehose decision if the fleet passes ~5 000 devices or the interval drops
    below 15 s: a Kinesis Data Stream in front of Firehose removes the 5 KB rounding, but its
    price is not in `scripts/cost.py` yet (add it with a source URL first).
-4. Lambda runtime is `python3.14` (what cdk-nag's L1 rule asks for); the handlers are only
-   run under 3.11–3.13 here. Add 3.14 to the CI matrix when `actions/setup-python` and
-   `aws-cdk-lib` both support it, or pin the runtime back to 3.13 and suppress L1.
+4. Lambda runtime is `python3.15` (what cdk-nag's L1 rule asks for since cdk-nag 2.38 /
+   aws-cdk-lib 2.278, which made CI run 4 of 2026-11-24 red on `python3.14`; bumped by the review
+   of 2026-11-25). The handlers are only run under 3.11–3.12 here. Add 3.15 to the CI matrix
+   when `actions/setup-python` and moto support it, or pin the runtime and suppress L1 with a
+   dated reason in `src/pipeline/nag.py`.
 
 ## Needs Mariam (a laptop with an AWS account)
 - `cdk bootstrap` + `cdk deploy`, provision one certificate, run the simulator for an hour,
